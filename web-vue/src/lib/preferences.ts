@@ -17,6 +17,8 @@ export const preferenceKeys = {
   studioConversations: 'studio-conversations',
   studioFullscreen: 'studio-fullscreen',
   studioFileKind: 'studio-file-kind',
+  voiceConversations: 'voice-conversations',
+  voiceActiveConversationId: 'voice-active-conversation-id',
   studioImageModel: 'studio-image-model',
   studioSidebarWidth: 'studio-sidebar-width',
   themeMode: 'theme-mode',

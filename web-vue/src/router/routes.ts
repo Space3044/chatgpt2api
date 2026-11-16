@@ -65,6 +65,12 @@ export const appRoutes: RouteRecordRaw[] = [
         component: () => import('@/views/Studio.vue'),
         meta: { requiredCapability: 'studio', workspace: true },
       },
+      {
+        path: 'voice',
+        name: 'voice',
+        component: () => import('@/views/Voice.vue'),
+        meta: { requiredCapability: 'studio', workspace: true },
+      },
     ],
   },
   {

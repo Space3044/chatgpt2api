@@ -72,6 +72,30 @@ class ImageAccountSelectionError(RuntimeError):
         super().__init__(f"image_account_selection:{self.kind}; {detail}")
 
 
+class VoiceAccountSelectionError(RuntimeError):
+    """Voice account selection failure.
+
+    Kinds:
+      not_found   -> the pinned account id does not exist in the pool.
+      unusable    -> the pinned account exists but cannot be used
+                     (disabled, limited beyond voice use, or its tokens
+                     are terminally invalid).
+      unavailable -> no usable account is left in the pool (503).
+    """
+
+    DEFAULTS: dict[str, tuple[int, str]] = {
+        "not_found": (404, "voice account not found"),
+        "unusable": (503, "voice account is not usable"),
+        "unavailable": (503, "no voice account available"),
+    }
+
+    def __init__(self, kind: str, message: str = "") -> None:
+        defaults = self.DEFAULTS.get(kind, self.DEFAULTS["unavailable"])
+        self.kind = kind if kind in self.DEFAULTS else "unavailable"
+        self.status_code, default_message = defaults
+        super().__init__(message or default_message)
+
+
 class OAuthRefreshError(RuntimeError):
     """Structured OAuth token refresh failure."""
 
@@ -2129,6 +2153,99 @@ class AccountService:
                 return self.ensure_access_token(access_token, event="get_text_access_token")
             except (TerminalRefreshTokenError, RefreshCredentialsChangedError):
                 continue
+
+    def get_voice_access_token(
+        self,
+        preferred_account_id: str | None = None,
+        excluded_tokens: set[str] | None = None,
+    ) -> tuple[str, dict]:
+        """Pick a voice account and return ``(access_token, account)``.
+
+        When ``preferred_account_id`` is given the pool account with that
+        management id is pinned: a missing or unusable pinned account
+        raises :class:`VoiceAccountSelectionError` and the caller must
+        NOT silently fall back to another account, because the upstream
+        ``conversation_id`` only works for the account that created it.
+        Otherwise the least-recently-used usable account is returned
+        (LRU over ``last_used_at``), skipping ``excluded_tokens``.
+        The returned token has been through ``ensure_access_token``,
+        so a refresh-token account is auto-refreshed like text accounts.
+        """
+        self._refresh_accounts_snapshot_if_stale()
+        excluded = {str(token or "").strip() for token in (excluded_tokens or set())}
+        excluded.discard("")
+        pinned_id = str(preferred_account_id or "").strip()
+        if pinned_id:
+            account = self.get_account_by_id(pinned_id)
+            if account is None:
+                raise VoiceAccountSelectionError(
+                    "not_found",
+                    f"voice account not found: {pinned_id}",
+                )
+            if not self._is_account_selectable(
+                account, allow_limited=True, allow_image_pending=True
+            ):
+                raise VoiceAccountSelectionError(
+                    "unusable",
+                    f"voice account is not usable: {pinned_id}",
+                )
+            token = str(account.get("access_token") or "").strip()
+            if not token or token in excluded:
+                raise VoiceAccountSelectionError(
+                    "unusable",
+                    f"voice account is not usable: {pinned_id}",
+                )
+            try:
+                refreshed = self.ensure_access_token(token, event="get_voice_access_token")
+            except (TerminalRefreshTokenError, RefreshCredentialsChangedError) as exc:
+                raise VoiceAccountSelectionError("unusable", str(exc)) from exc
+            current = self.get_account(refreshed) or account
+            self.mark_text_used(refreshed)
+            return refreshed, dict(current)
+
+        attempted = set(excluded)
+        while True:
+            with self._lock:
+                candidates = [
+                    account
+                    for account in self._accounts.values()
+                    if self._is_account_selectable(
+                        account,
+                        allow_limited=True,
+                        allow_image_pending=True,
+                    )
+                    and (token := str(account.get("access_token") or "").strip())
+                    and token not in attempted
+                ]
+                if not candidates:
+                    raise VoiceAccountSelectionError(
+                        "unavailable", "no voice account available"
+                    )
+                # Least recently used first; never-used accounts sort oldest.
+                candidates.sort(key=lambda item: str(item.get("last_used_at") or ""))
+                picked = candidates[0]
+                access_token = str(picked.get("access_token") or "").strip()
+            attempted.add(access_token)
+            try:
+                refreshed = self.ensure_access_token(
+                    access_token, event="get_voice_access_token"
+                )
+            except (TerminalRefreshTokenError, RefreshCredentialsChangedError):
+                continue
+            current = self.get_account(refreshed) or picked
+            self.mark_text_used(refreshed)
+            return refreshed, dict(current)
+
+    def mark_voice_token_invalid(self, access_token: str) -> bool:
+        """Mark a voice account token invalid, reusing the shared handler."""
+        if not str(access_token or "").strip():
+            return False
+        return self.handle_invalid_token(
+            access_token,
+            "voice_session",
+            error="voice account token invalid",
+            expected_access_token=access_token,
+        )
 
     def mark_text_used(self, access_token: str) -> None:
         if not access_token:

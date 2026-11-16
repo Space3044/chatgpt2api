@@ -121,6 +121,7 @@ DATABASE_URL=postgresql://user:password@host:5432/database
 |   🌐   | 代理出口   | 账号代理、账号组代理、多出口代理组、节点图片并发、轮换间隔、默认出口、备用出口和连通性检测                     |
 |   📊   | 日志与监控 | 调用日志、活跃请求、最近完成、慢请求、账号切换、出口信息、图片阶段时间线和原始上游诊断                         |
 |   🖼️   | 图片与文件 | 本地 / WebDAV 存储、图库、标签、缩略图、下载、ZIP、压缩、清理、PPT / PSD 产物和可选图片放大                    |
+|   🎙️   | 语音对话   | WebRTC 语音通话（信令走网关、媒体浏览器直连上游）、9 个音色、粘性账号、通话中图片上传凭证                     |
 |   ✨   | 提示词库   | 本地提示词资产、云端来源同步、分类选择和更新状态管理                                                           |
 |   💾   | 数据与备份 | SQLite、PostgreSQL 18、R2 备份、保留策略，以及调用趋势、成功率和模型统计                                       |
 |   🖥️   | 管理控制台 | 概览、账号、代理、日志、实时监控、图片、对话画图和系统设置，适配桌面与移动端                                   |
@@ -165,7 +166,18 @@ Authorization: Bearer <auth-key>
 | `/v1/editable-file-tasks/{task_id}` | `DELETE`     | 删除当前密钥所属任务                                 |
 | `/v1/ppt/generations`               | `POST`       | PPT 任务快捷入口                                     |
 | `/v1/psd/generations`               | `POST`       | PSD 任务快捷入口                                     |
+| `/v1/voice/config`                  | `GET`        | 语音能力：9 个音色、默认音色/语言、STUN 与 DataChannel 约定 |
+| `/v1/voice/sessions`                | `POST`       | 提交 WebRTC offer SDP，返回 answer SDP（粘性账号，最多换号 4 次） |
+| `/v1/voice/sessions/{id}/context`   | `POST`       | 更新上游会话 continuity（conversation / parent message id） |
+| `/v1/voice/sessions/{id}/title`     | `GET`        | 拉取上游会话标题                                     |
+| `/v1/voice/sessions/{id}/messages`  | `POST`       | 保存一条已定稿字幕/文本（`conversation_id` 为上游会话 id） |
+| `/v1/voice/sessions/{id}/uploads`   | `POST`       | 通话中图片直传凭证（网关不收图）                     |
+| `/v1/voice/sessions/{id}/uploads/{file_id}/complete` | `POST` | 完成图片上传终结                           |
+| `/v1/voice/sessions/{id}`           | `DELETE`     | 释放语音会话                                         |
+| `/api/voice/sessions`               | `GET`        | 管理员查看语音会话元数据（不含账号、token、代理）     |
 | `/files/{file_path}`                | `GET`        | 公开下载随机存储路径下的生成文件                     |
+
+语音调用与文本/图片调用共用同一套 Bearer 鉴权（`CHATGPT2API_AUTH_KEY` 或 User Key，`studio` 能力）；语音网关原有的 `vgw_live_*` 下游 Key 已彻底废弃，不再接受。语音可调项（默认音色/语言、会话 TTL、最大换号次数）在系统设置里，不用环境变量。详见 [语音架构](./docs/voice-architecture.md)。
 
 文件任务的创建、查询和删除按 API Key 隔离；任务返回的 `/files/...` 链接与生成图片一样无需鉴权，持有链接即可下载。公开下载会校验路径及文件类型，拒绝路径穿越。
 
@@ -243,6 +255,7 @@ npm run dev
 | [存储架构](./docs/storage-architecture.md)         | Application Database 与文件存储边界  |
 | [控制台架构](./docs/control-panel-architecture.md) | 前后端职责、业务投影与交互状态       |
 | [图片失败处理](./docs/image-failure-handling.md)   | 图片失败分类、重试与账号处置         |
+| [语音架构](./docs/voice-architecture.md)           | 语音网关合并、信令/媒体边界与粘性账号 |
 | [上游 SSE](./docs/upstream-sse-conversation.md)    | 会话与流式解析边界                   |
 
 文档与实现冲突时，以当前代码、测试和公开接口契约为准。

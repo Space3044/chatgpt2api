@@ -35,3 +35,17 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Voice gateway (MIT-licensed)
+----------------------------
+
+The voice gateway merged into this project (`contracts/voice.py`,
+`services/voice_service.py`, `services/storage/voice_session_repository.py`,
+`api/voice.py`, and the realtime/wm methods on `OpenAIBackendAPI`) is
+derived from chatgpt-web-voice by Space3044, itself developed from the
+original project by dyhhhhhh:
+https://github.com/Space3044/chatgpt-web-voice
+
+The voice code remains subject to its original MIT license terms. The
+merged code in this project is distributed under AGPL-3.0-only; see
+LICENSE and docs/adr/0005-merge-voice-gateway-into-python.md.

@@ -44,6 +44,8 @@ NUMERIC_SETTING_SPECS = MappingProxyType({
     "image_max_n": NumericSettingSpec(4, 1),
     "account_processing_concurrency": NumericSettingSpec(30, 1, 100),
     "image_max_account_attempts": NumericSettingSpec(4, 2),
+    "voice.session_ttl_seconds": NumericSettingSpec(180, 30, 3600, unit="seconds"),
+    "voice.max_account_attempts": NumericSettingSpec(4, 1, 10),
     "image_settle_secs": NumericSettingSpec(5.0, 0.5, unit="seconds", kind="float"),
     "backup.interval_minutes": NumericSettingSpec(360, 1, unit="minutes"),
     "backup.rotation_keep": NumericSettingSpec(10, 0),

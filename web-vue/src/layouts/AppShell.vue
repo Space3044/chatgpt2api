@@ -799,6 +799,12 @@ const menuItems: NavigationItem[] = [
     capability: 'studio',
   },
   {
+    path: '/voice',
+    label: '语音对话',
+    icon: 'M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z',
+    capability: 'studio',
+  },
+  {
     path: '/accounts',
     label: '账号管理',
     icon: 'M12 12a3.5 3.5 0 1 0-3.5-3.5A3.5 3.5 0 0 0 12 12zm0 2c-4.1 0-7.5 2.2-7.5 5v1h15v-1c0-2.8-3.4-5-7.5-5z',
@@ -839,6 +845,7 @@ const routeTitleMap: Record<string, string> = {
   settings: '系统设置',
   monitor: '实时监控',
   studio: '对话画图',
+  voice: '语音对话',
 }
 
 const visibleMenuItems = computed(() => {
@@ -1046,6 +1053,7 @@ const routeViewLoaders: Record<string, () => Promise<unknown>> = {
   '/proxy': () => import('@/views/Proxy.vue'),
   '/settings': () => import('@/views/Settings.vue'),
   '/studio': () => import('@/views/Studio.vue'),
+  '/voice': () => import('@/views/Voice.vue'),
 }
 
 function setMobileSidebarScrollLock(locked: boolean) {

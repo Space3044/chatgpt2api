@@ -7,11 +7,12 @@ render product HTML or transfer browser interaction ownership to Python.
 
 ## Entry points
 
-[`../../api/app.py`](../../api/app.py) assembles five routers:
+[`../../api/app.py`](../../api/app.py) assembles six routers:
 
 | Router | Primary surface | Principal owners |
 | --- | --- | --- |
 | [`api/ai.py`](../../api/ai.py) | OpenAI-compatible text, search, image, Messages, Responses, and editable-file endpoints | Protocol services, `LoggedCall`, `EditableFileTaskService` |
+| [`api/voice.py`](../../api/voice.py) | Voice config, WebRTC session SDP exchange, context/title, subtitle/message persistence, in-call image-upload credentials, release, admin session list | `VoiceService`, `OpenAIBackendAPI` voice methods, `LoggedCall` (metadata only) |
 | [`api/accounts.py`](../../api/accounts.py) | User Keys, Upstream Accounts, Account Groups, account operations, OAuth, CPA, and Sub2API | `AuthService`, `AccountService`, import services |
 | [`api/image_tasks.py`](../../api/image_tasks.py) | Studio-owned asynchronous image task endpoints | `ImageTaskService` |
 | [`api/prompts.py`](../../api/prompts.py) | Prompt Library reads and Prompt Source refresh/mutation | `PromptLibraryService` |
@@ -89,6 +90,7 @@ for verification and protocol evidence.
 | Image Assets and gallery | `ImageStorageService` | Asset mutation, catalogue, storage, and public URL behavior | Local/WebDAV assets plus `data/image_index.json` |
 | Editable File Tasks and Assets | `EditableFileTaskService` | Owner-scoped task commands and public asset resolution | `EditableFileTaskRepository` plus filesystem assets |
 | Prompt Sources and Prompt Library | `PromptLibraryService` | Revisioned merged library and source health | `PromptLibraryRepository` |
+| Voice sessions, conversations, and subtitle/text history | `VoiceService`, `VoiceSessionRepository` | Session/context/title/message/upload projections, metadata-only admin list | `voice_sessions`, `voice_conversations`, `voice_messages` tables in the Application Database |
 | CPA/Sub2API imports | `CPAImportService`, `Sub2APIImportService`, `RemoteImportJobCoordinator`, `RemoteAccountImportJob` | One import-job lifecycle and final batch result | Remote-import configuration repository plus Account Repository |
 | Online update | `UpdateStatusService`, `UpdateService` | Availability projection and update-task lifecycle | GitHub Release metadata, managed runtime directory, `data/update_task.json` |
 

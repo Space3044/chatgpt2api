@@ -14,3 +14,16 @@ export { proxyApi } from './proxy'
 export { openaiV1Api } from './openaiV1'
 export { userKeysApi } from './userKeys'
 export { promptsApi } from './prompts'
+export { voiceApi } from './voice'
+export type {
+  VoiceChoice,
+  VoiceCreateSessionRequest,
+  VoiceCreateSessionResponse,
+  VoiceLanguageChoice,
+  VoicePublicConfig,
+  VoiceSessionListItem,
+  VoiceSessionListResponse,
+  VoiceTitleResponse,
+  VoiceUpdateContextRequest,
+  VoiceUpdateContextResponse,
+} from './voice'

@@ -17,7 +17,7 @@ from collections.abc import Callable
 from typing import Any, Dict, Iterator, Optional
 from urllib.parse import unquote, urlparse
 
-from curl_cffi import CurlInfo, CurlOpt, requests
+from curl_cffi import CurlInfo, CurlMime, CurlOpt, requests
 from PIL import Image
 
 from services.account_service import account_service
@@ -676,6 +676,71 @@ class OpenAIBackendAPI:
             "subscription_plan": (payload.get("accounts") or {}).get("default", {}).get("entitlement", {}).get("subscription_plan"),
         })
         return default_account
+
+    # --- Voice (realtime/wm) upstream methods ---
+    #
+    # The voice path does not use the text-chat SSE flow
+    # (services/protocol/conversation.py). The wm call exchanges SDP as
+    # multipart form parts and returns answer SDP text (starting with
+    # ``v=0``), not JSON. Whether curl-cffi ``chrome110`` impersonation
+    # is accepted by /realtime/wm is unverified and must be tested with
+    # a real ChatGPT account (see ADR 0005).
+
+    def post_realtime_wm(
+        self,
+        offer_sdp: str,
+        session_json: str,
+        timeout: float = 60,
+    ) -> tuple[int, str]:
+        """POST offer SDP to /realtime/wm; returns (status, answer SDP text).
+
+        Wire format mirrors the Go gateway (encodeMultipart in
+        internal/voice/service.go): two plain multipart fields, ``sdp``
+        then ``session`` (JSON), no filename and no per-part content-type.
+        curl_cffi does NOT support ``files=`` (it raises
+        NotImplementedError); the form must be built as a ``CurlMime``
+        and passed via ``multipart=``.
+        """
+        path = "/realtime/wm"
+        url = self.base_url + path + "?dcid=0"
+        form = CurlMime()
+        form.addpart(name="sdp", data=offer_sdp.encode("utf-8"))
+        form.addpart(name="session", data=session_json.encode("utf-8"))
+        response = self.session.post(
+            url,
+            headers=self._headers(path),
+            multipart=form,
+            timeout=timeout,
+        )
+        return int(response.status_code), str(response.text or "")
+
+    def probe_account(self, timeout: float = 12) -> tuple[int, str, str]:
+        """GET /backend-api/settings/user; returns (status, content-type, body)."""
+        path = "/backend-api/settings/user"
+        response = self.session.get(
+            self.base_url + path,
+            headers=self._headers(path, {"Accept": "application/json, text/plain, */*"}),
+            timeout=timeout,
+        )
+        return (
+            int(response.status_code),
+            str(response.headers.get("content-type") or ""),
+            str(response.text or "")[:65536],
+        )
+
+    def fetch_conversation_title(
+        self,
+        conversation_id: str,
+        timeout: float = 15,
+    ) -> tuple[int, str]:
+        """GET /backend-api/conversation/{id}; returns (status, body text)."""
+        path = f"/backend-api/conversation/{conversation_id}"
+        response = self.session.get(
+            self.base_url + path,
+            headers=self._headers(path, {"Accept": "application/json, text/plain, */*"}),
+            timeout=timeout,
+        )
+        return int(response.status_code), str(response.text or "")[: (2 << 20)]
 
     def get_user_info(self) -> Dict[str, Any]:
         """获取当前 token 的账号信息。"""

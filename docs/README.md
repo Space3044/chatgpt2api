@@ -47,6 +47,7 @@ Executable documentation rules live in
 | [`control-panel-data-contract.md`](control-panel-data-contract.md) | current | Backend projections and frontend consumption rules |
 | [`control-panel-action-safety.md`](control-panel-action-safety.md) | current | Mutation ownership and destructive-action boundaries |
 | [`control-panel-performance.md`](control-panel-performance.md) | current | Query, pagination, refresh, and rendering rules |
+| [`voice-architecture.md`](voice-architecture.md) | current | Voice gateway merge, signalling/media boundary, sticky accounts |
 | [`image-failure-handling.md`](image-failure-handling.md) | current | Image failure classification, switching, and diagnostics |
 | [`storage-architecture.md`](storage-architecture.md) | current | Independent persistence responsibilities |
 | [`prompt-library-architecture.md`](prompt-library-architecture.md) | current | Prompt source and library projection lifecycle |

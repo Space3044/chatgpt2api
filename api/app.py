@@ -9,7 +9,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from api import accounts, ai, image_tasks, prompts, system
+from api import accounts, ai, image_tasks, prompts, system, voice
 from api.errors import install_exception_handlers
 from api.support import resolve_web_asset, start_account_lifecycle_watcher
 from services.account_service import account_service
@@ -126,6 +126,7 @@ def create_app() -> FastAPI:
     app.include_router(image_tasks.create_router())
     app.include_router(prompts.create_router())
     app.include_router(system.create_router(app_version))
+    app.include_router(voice.create_router())
 
     @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_web(full_path: str):

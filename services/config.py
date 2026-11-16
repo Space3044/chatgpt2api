@@ -112,6 +112,45 @@ DEFAULT_GIF_MODELS = [
 ]
 
 
+DEFAULT_VOICE_SETTINGS = {
+    "default_voice": "cove",
+    "default_language_code": "auto",
+    "session_ttl_seconds": 180,
+    "max_account_attempts": 4,
+}
+
+
+def _normalize_voice_settings(value: object) -> dict[str, object]:
+    from contracts.voice import (
+        DEFAULT_LANGUAGE_CODE,
+        DEFAULT_VOICE,
+        LANGUAGE_IDS,
+        VOICE_IDS,
+    )
+
+    source = value if isinstance(value, dict) else {}
+    voice = str(source.get("default_voice") or DEFAULT_VOICE).strip().lower()
+    if voice not in VOICE_IDS:
+        voice = DEFAULT_VOICE
+    language = str(source.get("default_language_code") or DEFAULT_LANGUAGE_CODE).strip().lower()
+    if language not in LANGUAGE_IDS:
+        language = DEFAULT_LANGUAGE_CODE
+    normalized = copy.deepcopy(source)
+    normalized.update({
+        "default_voice": voice,
+        "default_language_code": language,
+        "session_ttl_seconds": normalize_integer_setting(
+            "voice.session_ttl_seconds",
+            source.get("session_ttl_seconds"),
+        ),
+        "max_account_attempts": normalize_integer_setting(
+            "voice.max_account_attempts",
+            source.get("max_account_attempts"),
+        ),
+    })
+    return normalized
+
+
 def _normalize_bool(value: object, default: bool = False) -> bool:
     if isinstance(value, str):
         lowered = value.strip().lower()
@@ -657,6 +696,27 @@ class ConfigStore:
         )
 
     @property
+    def voice_settings(self) -> dict[str, object]:
+        self.reload_if_changed()
+        return _normalize_voice_settings(self.data.get("voice"))
+
+    @property
+    def voice_default_voice(self) -> str:
+        return str(self.voice_settings.get("default_voice") or "cove")
+
+    @property
+    def voice_default_language_code(self) -> str:
+        return str(self.voice_settings.get("default_language_code") or "auto")
+
+    @property
+    def voice_session_ttl_seconds(self) -> int:
+        return int(self.voice_settings.get("session_ttl_seconds") or 180)
+
+    @property
+    def voice_max_account_attempts(self) -> int:
+        return int(self.voice_settings.get("max_account_attempts") or 4)
+
+    @property
     def auto_remove_invalid_accounts(self) -> bool:
         value = self.data.get("auto_remove_invalid_accounts", True)
         if isinstance(value, str):
@@ -756,6 +816,7 @@ class ConfigStore:
             data["proxy_runtime"] = self.get_public_proxy_runtime_settings()
             data["fallback_proxy"] = self.get_proxy_fallback_settings()
             data["third_party_apps"] = self.get_third_party_apps_settings()
+            data["voice"] = self.voice_settings
             data.pop("basic", None)
             return data
 
@@ -847,6 +908,8 @@ class ConfigStore:
                 updates["third_party_apps"] = _normalize_third_party_apps_settings(updates.get("third_party_apps"))
             if "gif_models" in updates:
                 updates["gif_models"] = _normalize_gif_models(updates.get("gif_models"))
+            if "voice" in updates:
+                updates["voice"] = _normalize_voice_settings(updates.get("voice"))
             if "proxy_runtime" in updates:
                 incoming_runtime = updates.get("proxy_runtime")
                 if isinstance(incoming_runtime, dict):
