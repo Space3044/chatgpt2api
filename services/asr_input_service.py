@@ -3,15 +3,18 @@
 The sidecar (asr-sidecar/cmd/asr-server, built into the Docker image and
 started by the entrypoint on loopback) owns the live ASR session and the
 standalone RunPostAsr (fmt + NER). This service owns only the Python-side
-projection: validating the recorded PCM, forwarding it to the sidecar,
-and returning the sidecar's result. It never sees device ids, tokens or
+projection for the non-streaming calls: the config probe and the
+standalone post-ASR. The live streaming path lives in
+services/asr_stream_service.py, which relays the browser WebSocket to
+the sidecar's WS endpoint; the record-then-transcribe HTTP path was
+removed in voice.10.3. This service never sees device ids, tokens or
 any cometix-asr secret: the sidecar reads COMETIX_APP_KEY from the
 container environment itself, and the only credential on this path is
 the optional ASR_SIDECAR_KEY shared header, also from the environment.
 
 Mock mode is not ported: there is no simulated transcript path here.
-If the sidecar is unreachable, transcribe fails with 503 and a clear
-message instead of inventing a transcript.
+If the sidecar is unreachable, post-ASR fails with 503 and a clear
+message instead of inventing a result.
 """
 from __future__ import annotations
 
@@ -86,24 +89,6 @@ class AsrInputService:
             "sample_rate": 16000,
             "channels": 1,
             "max_seconds": MAX_PCM_SECONDS,
-        }
-
-    def transcribe(self, pcm: bytes, postasr: bool = False) -> dict[str, object]:
-        if not pcm:
-            raise AsrInputError(400, "没有收到语音数据")
-        if len(pcm) % 2 != 0:
-            raise AsrInputError(400, "语音数据必须是 16 位单声道 PCM")
-        if len(pcm) > MAX_PCM_BYTES:
-            raise AsrInputError(400, "语音超过 180 秒，请分段录入")
-        path = "/transcribe?postasr=1" if postasr else "/transcribe"
-        result = _call_sidecar(path, pcm, "application/octet-stream")
-        if not isinstance(result, dict) or "text" not in result:
-            raise AsrInputError(502, "语音识别服务返回了无法识别的结果")
-        return {
-            "text": str(result.get("text") or ""),
-            "final_text": str(result.get("final_text") or result.get("text") or ""),
-            "interim_count": int(result.get("interim_count") or 0),
-            "post_asr": result.get("post_asr"),
         }
 
     def post_asr(

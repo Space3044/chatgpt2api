@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -265,6 +264,21 @@ func (s *session) emitCloseOnce() {
 	}
 }
 
+// The session text is the server's cumulative formatted text
+// (results[0]), tracked directly — never assembled by merging.
+//
+// The server re-sends results[0] on every response and revises
+// earlier words in it as more audio arrives, so merging finals with
+// string rules kept failing: a revised cumulative result is neither
+// a pure extension nor an exact repeat, and appending it duplicated
+// the passage (verified live: a 170s streaming recording came back
+// as 3120 runes for a 913-rune passage, with whole sentences
+// repeated). results[0] itself is the server's running transcript
+// for the whole session: it grows monotonically (a 1-rune revision
+// dip aside) and reaches the full text, so the longest version seen
+// is the session text. Per-segment nonstream_result entries are
+// subsets of it — including one re-emitted early segment at the end
+// — so they are not merged in at all.
 func (s *session) handleResponse(resp *response) {
 	switch resp.MessageType {
 	case "TaskFailed", "SessionFailed":
@@ -292,25 +306,25 @@ func (s *session) handleResponse(resp *response) {
 	if text == "" {
 		return // VAD start (empty text)
 	}
-	if rj.isFinal() {
-		ft := rj.finalText()
-		if ft == "" {
-			ft = text
-		}
-		s.mu.Lock()
-		if s.finalText == "" {
-			s.finalText = ft
-		} else if strings.HasPrefix(ft, s.finalText) {
-			s.finalText = ft
-		} else if !strings.Contains(s.finalText, ft) {
-			s.finalText += ft
-		}
-		s.stable = s.finalText
-		s.mu.Unlock()
+	// results[0] is the session's cumulative formatted text: track
+	// the longest version seen (a revision can shorten it by a
+	// rune). A final payload's version is also the settled text —
+	// the confirmed part shown live.
+	final := rj.isFinal()
+	s.mu.Lock()
+	if len([]rune(text)) > len([]rune(s.cumulativeText)) {
+		s.cumulativeText = text
+	}
+	if final && len([]rune(text)) > len([]rune(s.settledText)) {
+		s.settledText = text
+	}
+	settled := s.settledText
+	s.mu.Unlock()
+	if final {
 		// Stage "stable" here; the matching "session_final" event is
 		// emitted when SessionFinished arrives (emitSessionFinal), as in
 		// the Rust addon.
-		s.emit(Event{Type: "transcript", Text: ft, Display: ft, Stage: "stable", IsFinal: true, IsInterim: false, IsVadFinished: true, StableText: s.finalText, PassCount: 2})
+		s.emit(Event{Type: "transcript", Text: text, Display: text, Stage: "stable", IsFinal: true, IsInterim: false, IsVadFinished: true, StableText: settled, PassCount: 2})
 		return
 	}
 	// Interim: the server sends cumulative formatted text in results[0].
@@ -319,7 +333,14 @@ func (s *session) handleResponse(resp *response) {
 
 func (s *session) emitSessionFinal() {
 	s.mu.Lock()
-	ft := s.finalText
+	// The session's final text is the longest cumulative text seen:
+	// it is the server's running transcript for the whole session
+	// and reaches the full text. Fall back to the settled text if
+	// no cumulative text arrived.
+	ft := s.cumulativeText
+	if ft == "" {
+		ft = s.settledText
+	}
 	s.mu.Unlock()
 	if ft == "" {
 		return

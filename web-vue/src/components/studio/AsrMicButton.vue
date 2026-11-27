@@ -23,15 +23,24 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
 import { computed, watch } from 'vue'
-import { useAsrInput } from '@/composables/useAsrInput'
+import { useAsrInput, type AsrInputState } from '@/composables/useAsrInput'
 
 const props = defineProps<{
   disabled?: boolean
 }>()
 
+/** Live streaming snapshot, forwarded to the composer overlay. */
+export interface AsrLiveState {
+  state: AsrInputState
+  confirmed: string
+  interim: string
+  levels: number[]
+}
+
 const emit = defineEmits<{
   transcript: [text: string]
   error: [message: string]
+  live: [live: AsrLiveState]
 }>()
 
 const asr = useAsrInput()
@@ -43,7 +52,8 @@ const ariaLabel = computed(() => {
 })
 
 // Click to toggle: click once to start recording, click again to stop
-// and transcribe. Desktop browsers use this; there is no hold-to-talk.
+// and get the final text. Desktop browsers use this; there is no
+// hold-to-talk.
 async function handleClick() {
   if (props.disabled) return
   if (asr.state.value === 'recording') {
@@ -61,6 +71,26 @@ watch(
   (message) => {
     if (message) emit('error', message)
   },
+)
+
+// Forward the live streaming snapshot (confirmed + interim text,
+// mic levels) to the composer overlay on every change.
+watch(
+  [
+    () => asr.state.value,
+    () => asr.confirmedText.value,
+    () => asr.interimText.value,
+    () => asr.levels.value,
+  ],
+  () => {
+    emit('live', {
+      state: asr.state.value,
+      confirmed: asr.confirmedText.value,
+      interim: asr.interimText.value,
+      levels: asr.levels.value,
+    })
+  },
+  { deep: true },
 )
 </script>
 
@@ -92,9 +122,35 @@ watch(
 }
 
 .asr-mic-button--recording {
+  position: relative;
   border-color: rgb(220 38 38 / 0.55);
   background: rgb(254 242 242);
   color: rgb(220 38 38);
+}
+
+/* Breathing pulse ring while recording; off entirely when the user
+   prefers reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .asr-mic-button--recording::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border: 1.5px solid rgb(220 38 38 / 0.5);
+    border-radius: 999px;
+    animation: asr-mic-breathe 1.6s ease-out infinite;
+    pointer-events: none;
+  }
+
+  @keyframes asr-mic-breathe {
+    0% {
+      transform: scale(1);
+      opacity: 0.7;
+    }
+    100% {
+      transform: scale(1.55);
+      opacity: 0;
+    }
+  }
 }
 
 .asr-mic-button--busy {

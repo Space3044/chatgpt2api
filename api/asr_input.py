@@ -1,26 +1,45 @@
-"""Voice-input HTTP routes (cometix-asr sidecar).
+"""Voice-input routes (cometix-asr sidecar).
 
 Authentication reuses the chatgpt2api User Key system only: Bearer
 token verified by ``api/support.py`` ``require_identity`` (legacy
 ``CHATGPT2API_AUTH_KEY`` or a User Key via ``auth_service``), exactly
-like the voice-call routes. The browser sends recorded 16kHz mono
-s16le PCM here; the Python backend forwards it to the Go sidecar on
-loopback and returns the transcript. The browser never talks to the
-sidecar directly, and no device id, token or cometix-asr secret ever
-appears in a request, a response or a log on this path.
+like the voice-call routes.
+
+The only input path is the live WebSocket ``/v1/asr/stream``: the
+browser streams 16kHz mono s16le PCM frames as they are recorded
+and interim/final transcript events stream back. A browser WebSocket
+cannot set an Authorization header, so the browser offers the User
+Key base64url-encoded as a ``Sec-WebSocket-Protocol`` value (see
+``services/asr_stream_service.py`` ``extract_ws_identity``): the same
+credential, the same ``require_identity`` check — no new credential,
+no key in the URL (uvicorn logs request paths), no key in any log.
+The Python backend relays the socket to the Go sidecar's ``WS /ws``
+on loopback; the browser never talks to the sidecar directly, and no
+device id, token or cometix-asr secret ever appears in a request, a
+response or a log on this path.
+
+There is no record-then-transcribe path: ``POST /v1/asr/transcribe``
+was removed in voice.10.3 when streaming replaced it. If the live
+stream fails, the browser shows a clear error and never invents a
+transcript.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, WebSocket
 
 from api.support import require_identity
 from contracts.asr_input import (
     AsrConfigView,
     AsrPostAsrRequest,
     AsrPostAsrResponse,
-    AsrTranscribeResponse,
 )
 from services.asr_input_service import AsrInputError, asr_input_service
+from services.asr_stream_service import (
+    WS_SUBPROTOCOL,
+    AsrStreamAuthError,
+    extract_ws_identity,
+    run_stream_bridge,
+)
 
 
 def create_router(service=asr_input_service) -> APIRouter:
@@ -33,21 +52,20 @@ def create_router(service=asr_input_service) -> APIRouter:
         require_identity(authorization)
         return AsrConfigView(**service.config())
 
-    @router.post("/v1/asr/transcribe", response_model=AsrTranscribeResponse)
-    async def transcribe_asr(
-        request: Request,
-        postasr: bool = False,
-        authorization: str | None = Header(default=None),
-    ) -> AsrTranscribeResponse:
-        require_identity(authorization)
-        pcm = await request.body()
+    @router.websocket("/v1/asr/stream")
+    async def stream_asr(websocket: WebSocket) -> None:
+        # Authenticate before accepting: extract_ws_identity decodes
+        # the User Key from the Sec-WebSocket-Protocol header and
+        # validates it with the same require_identity as the HTTP
+        # routes, so any string that is not a valid key is rejected.
+        # An unauthenticated handshake is closed, never upgraded.
         try:
-            result = service.transcribe(pcm, postasr=postasr)
-        except AsrInputError as exc:
-            raise HTTPException(
-                status_code=exc.status_code, detail={"error": exc.message}
-            ) from exc
-        return AsrTranscribeResponse(**result)
+            extract_ws_identity(websocket.headers)
+        except AsrStreamAuthError:
+            await websocket.close(code=4401)
+            return
+        await websocket.accept(subprotocol=WS_SUBPROTOCOL)
+        await run_stream_bridge(websocket)
 
     @router.post("/v1/asr/postasr", response_model=AsrPostAsrResponse)
     async def post_asr(

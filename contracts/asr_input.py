@@ -25,15 +25,6 @@ class AsrConfigView(_StrictModel):
     max_seconds: int = 180
 
 
-class AsrTranscribeResponse(_StrictModel):
-    """Result of one push-to-talk utterance."""
-
-    text: str
-    final_text: str
-    interim_count: int = 0
-    post_asr: dict[str, Any] | None = None
-
-
 class AsrPostAsrRequest(_StrictModel):
     """Standalone post-ASR (fmt + NER) on already recognised text."""
 

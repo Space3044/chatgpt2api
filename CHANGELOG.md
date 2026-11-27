@@ -2,13 +2,14 @@
 
 ## Unreleased
 
-+ [新增] Studio 对话和画图输入框支持语音输入：点击话筒按钮开始录音，再点一次结束并识别，识别结果插回输入框。音频由浏览器重采样为 16kHz 单声道 PCM，经 Python 后端 `/v1/asr/transcribe` 转发给内置的 cometix-asr Go sidecar 做实时识别；另有独立的 `/v1/asr/postasr`（fmt + NER）和 `/v1/asr/config`。sidecar 只监听容器内 loopback，不对外暴露；Mock 模式没有移植；后处理的 app key 没有仓库内默认值，必须在 VPS 的 `.env` 里设置 `COMETIX_APP_KEY`。
++ [新增] Studio 对话和画图输入框支持语音输入：点击话筒按钮开始录音，再点一次结束并识别，识别结果插回输入框。音频由浏览器重采样为 16kHz 单声道 PCM，经 Python 后端 WebSocket `/v1/asr/stream` 转发给内置的 cometix-asr Go sidecar 做实时识别；另有独立的 `/v1/asr/postasr`（fmt + NER）和 `/v1/asr/config`。sidecar 只监听容器内 loopback，不对外暴露；Mock 模式没有移植；后处理的 app key 没有仓库内默认值，必须在 VPS 的 `.env` 里设置 `COMETIX_APP_KEY`。
 
 + [新增] 语音对话后端并入单进程（方案 A，见 ADR 0005）：`/v1/voice/config`、`/v1/voice/sessions` 及 context/title/uploads/complete/release 路由，信令走网关、媒体浏览器直连上游，网关不收存通话音频与图片；语音会话粘性绑定一个上游账号，401 换号重试最多 4 次，粘性账号失效直接失败不静默换号；语音账号复用账号池的 RT 自动刷新。
 + [新增] 语音调用进入日志与监控时只记录元数据（会话 id、账号、语音参数、耗时、结果），不记录 SDP、ICE candidate 与 DataChannel 文本；管理员会话列表不含账号、token 与代理。
 + [新增] 语音可调项（默认音色/语言、会话 TTL 180 秒、最大换号次数 4）进入系统设置；`vgw_live_*` 下游 Key 彻底废弃，语音接口只接受本项目 User Key 鉴权。
 + [新增] Application Database 新增 `voice_sessions`、`voice_conversations`、`voice_messages` 表与独立 Repository，不动账号存储。
 + [新增] 语音面板通话中可以发图片：选图后经网关换凭证、浏览器直传 Azure、complete 后经 DataChannel 把图片指针发给对方，图片字节不经过网关；通话结束前对方说完即清掉实时字幕，实时字幕只在对方说话时显示。
++ [新增] 语音输入改成实时：边说边出字，不再整段录完再上传识别。浏览器通过 WebSocket `/v1/asr/stream` 把 16kHz PCM 边录边发给后端，后端转发给 sidecar 的 `WS /ws`，中间结果实时回显在输入框上方（已确认部分为正文、中间结果为灰色），点停止后整段确认文本插回输入框；原先的 `POST /v1/asr/transcribe` 整段上传路径已移除（前端、Python 路由、sidecar 处理器一并删除），180 秒上限不变。长停顿由 sidecar 实时压缩静音并在会话结束时透明重开会话兜底，后半段不再丢失；长录音服务端会反复修正累计文本，sidecar 直接取服务端累计文本（results[0]）的最长版本作为最终结果、其中来自最终结果包的最长版本作为已确认文本，不再用字符串规则合并（合并会在长录音整段重复：170 秒连续录音实测合并后为 3120 字，原文 913 字）；实时中间结果去掉已确认前缀，确认部分不再重复显示。170 秒连续录音实测：最终结果 917 字，原文 913 字，无重复、无丢失。话筒录音时有呼吸脉冲动效，输入框上方有实时音量波形条，中间结果淡入 150ms；均遵循系统减弱动效偏好。
 + [修复] 语音输入话筒按钮移到输入框右侧发送按钮旁边；录音改为点击开始、再点击结束并识别，不再按住说话。
 + [修复] 语音输入长停顿丢后半段：说话中间停顿约 10 秒服务端会提前结束会话，sidecar 现在把超过约 2 秒的静音压缩到约 0.5 秒再识别；长录音按静音处切成约 6–10 秒的小段分别识别再拼接（直接整段送服务端只会保留前约 10 秒）；单次录音上限从 60 秒放宽到 180 秒。
 + [修复] 通话中发图对方看不到：relay 消息的图片 part 之前只有裸指针，补上 width/height/size_bytes，消息再带 metadata.attachments（与项目内文字对话发图同一形状），否则语音后端解析不出图片。

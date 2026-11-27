@@ -20,6 +20,26 @@
       @click="textareaRef?.focus()"
     >
       <div class="chat-input-panel-shell">
+        <div
+          v-if="asrLive.state === 'recording' || asrLive.state === 'transcribing'"
+          class="asr-live-overlay"
+          aria-live="polite"
+        >
+          <div class="asr-live-levels" aria-hidden="true">
+            <span
+              v-for="(level, index) in asrLive.levels"
+              :key="index"
+              :style="{ height: `${Math.max(8, Math.round(level * 100))}%` }"
+            ></span>
+          </div>
+          <div class="asr-live-text">
+            <span class="asr-live-confirmed">{{ asrLive.confirmed }}</span>
+            <span v-if="asrLive.interim" :key="asrLive.interim" class="asr-live-interim">{{ asrLive.interim }}</span>
+            <span v-if="!asrLive.confirmed && !asrLive.interim" class="asr-live-hint">
+              {{ asrLive.state === 'transcribing' ? '正在识别…' : '正在聆听…' }}
+            </span>
+          </div>
+        </div>
         <div v-if="isEditing" class="chat-editing-bar" @click.stop>
           <div class="chat-editing-info">
             <Icon icon="lucide:pencil" class="h-3.5 w-3.5" />
@@ -302,7 +322,7 @@
           </div>
 
           <div class="chat-input-submit-row">
-            <AsrMicButton :disabled="isSending" @transcript="handleAsrTranscript" @error="$emit('asr-error', $event)" />
+            <AsrMicButton :disabled="isSending" @transcript="handleAsrTranscript" @live="handleAsrLive" @error="$emit('asr-error', $event)" />
 
             <button
               v-if="isStreaming"
@@ -344,7 +364,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Button, Input } from 'nanocat-ui'
 import type { ActionMenuItem } from 'nanocat-ui'
 import FloatingActionMenu from '@/components/ai/FloatingActionMenu.vue'
-import AsrMicButton from '@/components/studio/AsrMicButton.vue'
+import AsrMicButton, { type AsrLiveState } from '@/components/studio/AsrMicButton.vue'
 import { GroupedSelectMenu } from 'nanocat-ui'
 import StudioToolbarSelectButton from '@/components/studio/StudioToolbarSelectButton.vue'
 import {
@@ -659,6 +679,14 @@ function handleAttachReferenceClick() {
   fileInputRef.value?.click()
 }
 
+// Voice input: live streaming snapshot from the mic button, shown in
+// the caption overlay above the input panel while recording.
+const asrLive = ref<AsrLiveState>({ state: 'idle', confirmed: '', interim: '', levels: [] })
+
+function handleAsrLive(live: AsrLiveState) {
+  asrLive.value = live
+}
+
 // Voice input: insert the recognised text into the composer. The
 // composer is shared by chat and image modes, so the mic button works
 // in both. No space is added for Chinese text; a space is added only
@@ -880,6 +908,81 @@ onBeforeUnmount(() => {
   padding: 0.55rem;
   pointer-events: auto;
   box-shadow: var(--shadow-elevated);
+}
+
+/* Live voice-input caption: floats above the input panel while
+   recording, so the text appearing here never shifts the layout.
+   Levels are driven by the mic input; confirmed text is solid and
+   interim text is greyed, fading in as it arrives. */
+.asr-live-overlay {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  left: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid hsl(var(--border) / 0.82);
+  border-radius: 0.9rem;
+  background: hsl(var(--background));
+  box-shadow: var(--shadow-elevated);
+  pointer-events: none;
+}
+
+.asr-live-levels {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-end;
+  gap: 2px;
+  height: 1.25rem;
+}
+
+.asr-live-levels span {
+  width: 3px;
+  border-radius: 2px;
+  background: hsl(var(--primary) / 0.75);
+  transition: height 90ms linear;
+}
+
+.asr-live-text {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: hsl(var(--foreground));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asr-live-confirmed {
+  color: hsl(var(--foreground));
+}
+
+.asr-live-interim {
+  color: hsl(var(--muted-foreground));
+}
+
+.asr-live-hint {
+  color: hsl(var(--muted-foreground));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .asr-live-interim {
+    display: inline-block;
+    animation: asr-live-fade-in 150ms ease-out;
+  }
+
+  @keyframes asr-live-fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(2px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 }
 
 .chat-editing-bar {

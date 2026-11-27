@@ -18,8 +18,7 @@ so the origin stays visible.
 - Verification CLIs: `cmd/asr-test` (stream a PCM file), `cmd/postasr-test`.
 - New here: `cmd/asr-server`, the sidecar HTTP/WS server the Python
   backend talks to (loopback only, default `127.0.0.1:3101`):
-  `GET /healthz`, `WS /ws` (browser-relay protocol), `POST /transcribe`
-  (raw PCM, `?postasr=1` optional), `POST /postasr`.
+  `GET /healthz`, `WS /ws` (browser-relay protocol), `POST /postasr`.
 
 ## What is NOT ported (deliberate)
 

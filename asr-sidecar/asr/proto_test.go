@@ -49,7 +49,7 @@ func TestParseResultJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !rj.isFinal() || rj.finalText() != "你好。" {
+	if !rj.isFinal() || rj.text() != "你好。" {
 		t.Fatalf("final parse failed: %+v", rj)
 	}
 }

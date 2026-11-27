@@ -202,19 +202,6 @@ func (r *resultJSON) isFinal() bool {
 	return false
 }
 
-// finalText extracts the final text: prefer the entry carrying
-// extra.nonstream_result, otherwise results[0].
-func (r *resultJSON) finalText() string {
-	for _, it := range r.Results {
-		if it.Extra != nil {
-			if _, ok := it.Extra["nonstream_result"]; ok && it.Text != "" {
-				return it.Text
-			}
-		}
-	}
-	return r.text()
-}
-
 func parseResultJSON(s string) (*resultJSON, error) {
 	var r resultJSON
 	dec := json.NewDecoder(strings.NewReader(s))

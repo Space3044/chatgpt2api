@@ -64,25 +64,25 @@ type SessionConfig struct {
 }
 
 type session struct {
-	handle       int
-	id           string // session UUID, also the protobuf request_id
-	token        string // protobuf token (field 2): the public appkey
-	conn         *websocket.Conn
-	onEvent      func(Event)
-	enc          *opusEncoder
-	pcmBuf       []byte // partial PCM (< 1280 bytes) waiting for a full frame
-	queued       [][]byte
-	ready        bool
-	connected    bool
-	finalized    bool
-	closed       bool
-	closeEmitted bool
-	done         chan struct{}
-	finalText    string // accumulated final text
-	stable       string // latest final segment text
-	frameNo      int32
-	mu           sync.Mutex
-	writeMu      sync.Mutex
+	handle         int
+	id             string // session UUID, also the protobuf request_id
+	token          string // protobuf token (field 2): the public appkey
+	conn           *websocket.Conn
+	onEvent        func(Event)
+	enc            *opusEncoder
+	pcmBuf         []byte // partial PCM (< 1280 bytes) waiting for a full frame
+	queued         [][]byte
+	ready          bool
+	connected      bool
+	finalized      bool
+	closed         bool
+	closeEmitted   bool
+	done           chan struct{}
+	cumulativeText string // longest results[0] (cumulative formatted text) seen
+	settledText    string // longest results[0] seen in a final (VAD-finished) payload
+	frameNo        int32
+	mu             sync.Mutex
+	writeMu        sync.Mutex
 }
 
 var (
