@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+// Port of the Doubao IME ASR protobuf schema (doubaoime_asr/asr.proto),
+// cross-checked against frames captured from the Rust cometix-asr addon
+// (docs/cap_msg_*.bin, docs/fake_msg_*.bin in the parent investigation).
+// The Go client uses a handwritten codec (asr/proto.go) that mirrors this
+// schema, so no protoc step is needed.
+//
+// NOTE on AsrRequest field 9: the Python reference defines it as
+// FrameState (FIRST=1, MIDDLE=3, LAST=9). The Rust addon instead sends a
+// per-frame counter there (1, 2, 3, ...), with no frame_state at all — the
+// end of audio is signalled by FinishSession. This client mirrors the Rust
+// behaviour, which is verified live against the service.
+
+package asr;
+
+message AsrRequest {
+  string token = 2;        // appkey, e.g. "OrnqKvSSrs" (Rust) or settings app_key
+  string service_name = 3; // always "ASR"
+  string method_name = 5;  // StartTask | StartSession | TaskRequest | FinishSession
+  string payload = 6;      // JSON: StartSession config, or {"extra":{},"timestamp_ms":...}
+  bytes audio_data = 7;    // Opus frame (TaskRequest only)
+  string request_id = 8;   // session UUID, same for all messages in a session
+  int32 frame_index = 9;   // per-frame counter, starting at 1 (Rust behaviour)
+}
+
+message AsrResponse {
+  string request_id = 1;
+  string task_id = 2;
+  string service_name = 3;
+  string message_type = 4; // TaskStarted | SessionStarted | SessionFinished |
+                           // TaskFailed | SessionFailed
+  int32 status_code = 5;   // 20000000 = OK for TaskStarted/SessionStarted
+  string status_message = 6;
+  string result_json = 7;  // JSON recognition results (see README)
+  int32 unknown_field_9 = 9;
+}
+
+enum FrameState {
+  FRAME_STATE_UNSPECIFIED = 0;
+  FRAME_STATE_FIRST = 1;
+  FRAME_STATE_MIDDLE = 3;
+  FRAME_STATE_LAST = 9;
+}

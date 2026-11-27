@@ -76,6 +76,8 @@
               </Button>
             </div>
 
+            <AsrMicButton :disabled="isSending" @transcript="handleAsrTranscript" @error="$emit('asr-error', $event)" />
+
             <div class="chat-select-wrap chat-select-wrap--mode">
               <GroupedSelectMenu
                 v-model="modeValue"
@@ -342,6 +344,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Button, Input } from 'nanocat-ui'
 import type { ActionMenuItem } from 'nanocat-ui'
 import FloatingActionMenu from '@/components/ai/FloatingActionMenu.vue'
+import AsrMicButton from '@/components/studio/AsrMicButton.vue'
 import { GroupedSelectMenu } from 'nanocat-ui'
 import StudioToolbarSelectButton from '@/components/studio/StudioToolbarSelectButton.vue'
 import {
@@ -401,6 +404,7 @@ const emit = defineEmits<{
   'open-prompts': []
   'open-search-skill': []
   'open-recent-file-tasks': []
+  'asr-error': [message: string]
 }>()
 
 const composerShellRef = ref<HTMLElement | null>(null)
@@ -653,6 +657,25 @@ function handleAttachReferenceClick() {
     return
   }
   fileInputRef.value?.click()
+}
+
+// Voice input: insert the recognised text into the composer. The
+// composer is shared by chat and image modes, so the mic button works
+// in both. No space is added for Chinese text; a space is added only
+// when both sides are alphanumeric.
+function handleAsrTranscript(text: string) {
+  const current = textValue.value
+  if (!current) {
+    textValue.value = text
+  } else if (/[A-Za-z0-9]$/.test(current) && /^[A-Za-z0-9]/.test(text)) {
+    textValue.value = `${current} ${text}`
+  } else {
+    textValue.value = current + text
+  }
+  void nextTick(() => {
+    textareaRef.value?.focus()
+    scheduleTextareaResize()
+  })
 }
 
 function handleChatSettingsMenuSelect(key: string) {

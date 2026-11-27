@@ -22,6 +22,26 @@ COPY scripts/image_upscale/package.json scripts/image_upscale/package-lock.json 
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 
 
+# cometix-asr sidecar: Go live-ASR + standalone RunPostAsr (fmt + NER).
+# Mock mode is not ported. The post-ASR app key has no default in the
+# source; it comes from COMETIX_APP_KEY at runtime.
+FROM golang:1.25-bookworm AS asr-build
+
+WORKDIR /app/asr-sidecar
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    pkg-config \
+    libopus-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY asr-sidecar/go.mod asr-sidecar/go.sum ./
+RUN go mod download
+
+COPY asr-sidecar ./
+RUN CGO_ENABLED=1 go build -trimpath -o /asr-server ./cmd/asr-server
+
+
 FROM python:3.13-slim AS app
 
 ARG TARGETARCH
@@ -46,6 +66,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     openssl \
     tzdata \
+    libopus0 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir uv
@@ -62,6 +83,7 @@ COPY utils ./utils
 COPY scripts ./scripts
 COPY --from=image-upscale-build /usr/local/bin/node /usr/local/bin/node
 COPY --from=image-upscale-build /app/scripts/image_upscale/node_modules ./scripts/image_upscale/node_modules
+COPY --from=asr-build /asr-server ./asr-server
 COPY --from=web-build /app/web-vue/dist ./web_dist
 COPY deploy/docker-entrypoint.sh /usr/local/bin/chatgpt2api-entrypoint
 RUN chmod 0755 /usr/local/bin/chatgpt2api-entrypoint

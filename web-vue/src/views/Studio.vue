@@ -130,6 +130,7 @@
             @open-prompts="openPromptPicker"
             @open-search-skill="isSearchSkillOpen = true"
             @open-recent-file-tasks="isRecentFileTasksOpen = true"
+            @asr-error="toast.error($event)"
           />
         </div>
 
