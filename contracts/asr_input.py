@@ -22,7 +22,7 @@ class AsrConfigView(_StrictModel):
     enabled: bool
     sample_rate: int = 16000
     channels: int = 1
-    max_seconds: int = 60
+    max_seconds: int = 180
 
 
 class AsrTranscribeResponse(_StrictModel):

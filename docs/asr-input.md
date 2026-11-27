@@ -1,6 +1,6 @@
 # Voice input in Studio (cometix-asr sidecar)
 
-Status: current (voice.10.1, deployed on the VPS)
+Status: current (voice.10.2, deployed on the VPS)
 
 ## What it is
 
@@ -35,7 +35,7 @@ The sidecar also serves `WS /ws` (the browser-relay protocol, kept
 for streaming clients) and `POST /postasr`, the standalone RunPostAsr
 (fmt + NER) on already recognised text. The Python backend exposes it
 as `POST /v1/asr/postasr`. `GET /v1/asr/config` reports whether the
-sidecar is reachable, plus the audio format (16kHz, mono, max 60s).
+sidecar is reachable, plus the audio format (16kHz, mono, max 180s).
 
 ## What is not here
 
@@ -83,7 +83,29 @@ committed.
 
 ## Limits
 
-- One utterance per request, max 60 seconds of audio.
+- One utterance per request, max 180 seconds of audio.
+- Long pauses do not cut the transcript off: before the live session
+  the sidecar compresses any silence run longer than ~2s down to
+  ~0.5s (silence = 40ms frames under conservative peak/RMS
+  thresholds, so quiet speech is kept). This is needed because the
+  Doubao IME server ends a session after a long silence — verified
+  live: a 10s pause in the middle of an utterance drops everything
+  after it, while 1s/3s/5s pauses are fine. The same compression
+  also handles leading silence while the user thinks after clicking
+  the mic.
+- Long utterances are not sent to the server in one stream: fed as
+  fast as possible, the server only processes roughly the first
+  ~10s before FinishSession and drops the tail (verified live: a
+  fast-fed 30s clip returns only its first ~11s, an 83s clip only
+  ~13s). The sidecar therefore splits the audio into ~6-10s chunks
+  (hard max ~10s, cut at silence runs where possible so words are
+  not split), runs one short live session per chunk — short sessions
+  transcribe exactly — paces the feed at ~4x real time, and joins
+  the chunk finals (a space is added only between two
+  alphanumerics). A failed chunk is retried once: session setup
+  occasionally fails with a transient handshake error. A live session
+  also dies after ~85s of wall time, which chunking avoids as well:
+  no single session lasts more than a few seconds.
 - The ASR backend is Doubao IME's private, undocumented API with a
   borrowed client identity: it can change, throttle, or stop working
   at any time, with no SLA. Audio is sent to ByteDance servers. For

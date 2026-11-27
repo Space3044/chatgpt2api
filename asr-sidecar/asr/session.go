@@ -205,6 +205,11 @@ func (s *session) waitFor(want string, timeout time.Duration) error {
 				return fmt.Errorf("%s: unexpected status code %d %s", want, resp.StatusCode, resp.StatusMessage)
 			}
 			s.emit(Event{Type: "debug", Message: want + " OK code=" + fmt.Sprint(resp.StatusCode)})
+			// Clear the read deadline set above: the read loop must
+			// not inherit a stale handshake deadline, or a slow
+			// handshake plus a long session would kill the
+			// connection mid-transcription with an i/o timeout.
+			_ = s.conn.SetReadDeadline(time.Time{})
 			return nil
 		}
 		// Any other message during handshake (e.g. a result) is handled

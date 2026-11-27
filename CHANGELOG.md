@@ -10,6 +10,7 @@
 + [新增] Application Database 新增 `voice_sessions`、`voice_conversations`、`voice_messages` 表与独立 Repository，不动账号存储。
 + [新增] 语音面板通话中可以发图片：选图后经网关换凭证、浏览器直传 Azure、complete 后经 DataChannel 把图片指针发给对方，图片字节不经过网关；通话结束前对方说完即清掉实时字幕，实时字幕只在对方说话时显示。
 + [修复] 语音输入话筒按钮移到输入框右侧发送按钮旁边；录音改为点击开始、再点击结束并识别，不再按住说话。
++ [修复] 语音输入长停顿丢后半段：说话中间停顿约 10 秒服务端会提前结束会话，sidecar 现在把超过约 2 秒的静音压缩到约 0.5 秒再识别；长录音按静音处切成约 6–10 秒的小段分别识别再拼接（直接整段送服务端只会保留前约 10 秒）；单次录音上限从 60 秒放宽到 180 秒。
 + [修复] 通话中发图对方看不到：relay 消息的图片 part 之前只有裸指针，补上 width/height/size_bytes，消息再带 metadata.attachments（与项目内文字对话发图同一形状），否则语音后端解析不出图片。
 + [移除] 通话中发图片（2026-11-16）：实测语音通道根本不支持通话中发图，对方看不到图片。上游和下游一起移除：`/v1/voice/sessions/{id}/uploads` 与 complete 路由、网关上传方法、上游 files 调用（`create_file_upload` / `complete_file_upload` / `process_upload_stream`）、面板发图按钮与 `sendImage`。文字对话发图不受影响（走 `_upload_image`）。
 

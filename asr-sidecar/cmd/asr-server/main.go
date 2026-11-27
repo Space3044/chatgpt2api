@@ -11,9 +11,13 @@
 //	WS   /ws         browser-relay protocol: {"type":"start"} / binary
 //	                  16kHz mono s16le PCM frames / {"type":"stop"};
 //	                  server replies ready/transcript/error/close JSON.
-//	POST /transcribe raw 16kHz mono s16le PCM body (max 60s), optional
+//	POST /transcribe raw 16kHz mono s16le PCM body (max 180s), optional
 //	                  ?postasr=1 to run the standalone RunPostAsr
-//	                  (fmt + NER) on the final text. Returns
+//	                  (fmt + NER) on the final text. Long silences
+//	                  are compressed and long utterances are split
+//	                  into ~8-10s sessions before the live ASR
+//	                  (see stripLongSilences, splitIntoChunks).
+//	                  Returns
 //	                  {"text","final_text","interim_count","post_asr"}.
 //	POST /postasr    {"text","enable_fmt","enable_ner","sami_token","uid"}
 //	                  (did is filled from the cached device id when
@@ -49,9 +53,92 @@ import (
 )
 
 const (
-	maxPCMSeconds = 60
-	maxPCMBytes   = maxPCMSeconds * 16000 * 2 // 60s of 16kHz mono s16le
+	maxPCMSeconds = 180
+	maxPCMBytes   = maxPCMSeconds * 16000 * 2 // 180s of 16kHz mono s16le
 )
+
+// Silence stripping for the live session. The Doubao IME server ends
+// a session after a long silence (verified live: a 10s pause in the
+// middle of an utterance drops everything after it, while 1s/3s/5s
+// pauses are fine), so a user who pauses to think loses the second
+// half of what they say — including leading silence while they think
+// after clicking the mic. stripLongSilences compresses any run of
+// near-silence longer than ~2s down to ~0.5s before the audio reaches
+// the server.
+//
+// A 40ms frame counts as silent only when BOTH its peak amplitude and
+// its RMS are below conservative thresholds, so quiet speech is never
+// stripped. 0.5s of each silence run is kept so word boundaries and
+// natural pacing survive. Only full 40ms frames are examined; a
+// trailing partial frame is passed through untouched.
+const (
+	silenceFrameSamples = 640 // 40ms at 16kHz
+	silenceFrameBytes   = silenceFrameSamples * 2
+	silenceCutFrames    = 50 // runs longer than ~2s are cut
+	silenceKeepFrames   = 12 // keep ~0.5s of a cut run
+	silencePeakMax      = 500
+	silenceRMSMax       = 200
+)
+
+func frameIsSilent(frame []byte) bool {
+	var peak int
+	var sumSq int64
+	for i := 0; i+1 < len(frame); i += 2 {
+		v := int(int16(frame[i]) | int16(frame[i+1])<<8)
+		if v < 0 {
+			v = -v
+		}
+		if v > peak {
+			peak = v
+		}
+		s := int64(int16(frame[i]) | int16(frame[i+1])<<8)
+		sumSq += s * s
+	}
+	if peak >= silencePeakMax {
+		return false
+	}
+	n := len(frame) / 2
+	if n == 0 {
+		return true
+	}
+	// RMS via integer square root approximation: compare sumSq/n
+	// against threshold^2 without floating point.
+	return sumSq/int64(n) < int64(silenceRMSMax)*int64(silenceRMSMax)
+}
+
+func stripLongSilences(pcm []byte) []byte {
+	frames := len(pcm) / silenceFrameBytes
+	if frames == 0 {
+		return pcm
+	}
+	silent := make([]bool, frames)
+	for i := 0; i < frames; i++ {
+		silent[i] = frameIsSilent(pcm[i*silenceFrameBytes : (i+1)*silenceFrameBytes])
+	}
+	out := make([]byte, 0, len(pcm))
+	for i := 0; i < frames; {
+		if !silent[i] {
+			out = append(out, pcm[i*silenceFrameBytes:(i+1)*silenceFrameBytes]...)
+			i++
+			continue
+		}
+		j := i
+		for j < frames && silent[j] {
+			j++
+		}
+		keep := j - i
+		if keep > silenceCutFrames {
+			keep = silenceKeepFrames
+		}
+		for k := 0; k < keep; k++ {
+			out = append(out, pcm[(i+k)*silenceFrameBytes:(i+k+1)*silenceFrameBytes]...)
+		}
+		i = j
+	}
+	// Trailing partial frame, if any, passes through untouched.
+	out = append(out, pcm[frames*silenceFrameBytes:]...)
+	return out
+}
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  64 * 1024,
@@ -83,9 +170,137 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
-// runLiveSession streams one recorded utterance through a live ASR
-// session and returns the final text and the interim count.
+// runLiveSession streams one recorded utterance through live ASR
+// sessions and returns the final text and the interim count.
+//
+// Two workarounds for the Doubao IME server's streaming behaviour,
+// both verified live on the VPS:
+//
+//   - Long silences are compressed first (see stripLongSilences):
+//     the server ends a session after a long pause, so uncompressed
+//     audio would lose everything after the pause.
+//   - The audio is split into ~6-10s chunks (see splitIntoChunks),
+//     each run as its own short session, and the chunk finals are
+//     joined. Fed as fast as possible, the server only processes
+//     roughly the first ~10s of a stream before FinishSession and
+//     drops the tail (verified: a fast-fed 30s clip returns only its
+//     first ~11s; a fast-fed 83s clip returns only ~13s). Short
+//     sessions transcribe exactly, so chunking keeps long recordings
+//     complete. Feeding is also paced (see runOneLiveSession).
 func runLiveSession(pcm []byte) (finalText string, interimCount int, err error) {
+	origLen := len(pcm)
+	pcm = stripLongSilences(pcm)
+	if len(pcm) != origLen {
+		log.Printf("[asr-server] silence strip: %.1fs -> %.1fs", float64(origLen)/32000, float64(len(pcm))/32000)
+	}
+	chunks := splitIntoChunks(pcm)
+	if len(chunks) > 1 {
+		log.Printf("[asr-server] split %.1fs into %d sessions", float64(len(pcm))/32000, len(chunks))
+	}
+	for _, ch := range chunks {
+		text, interim, cerr := runOneLiveSession(ch)
+		if cerr != nil {
+			// One retry: session setup occasionally fails with a
+			// transient handshake error (server-side), and with
+			// chunking a single failed chunk would fail the whole
+			// utterance. Only the failed chunk is retried.
+			log.Printf("[asr-server] chunk failed (%v), retrying once", cerr)
+			time.Sleep(time.Second)
+			text, interim, cerr = runOneLiveSession(ch)
+			if cerr != nil {
+				return "", interimCount, cerr
+			}
+		}
+		interimCount += interim
+		finalText = joinChunkText(finalText, text)
+	}
+	return finalText, interimCount, nil
+}
+
+// Chunking for runLiveSession. The server transcribes short
+// fast-fed sessions exactly but drops the tail of long ones, so an
+// utterance is cut into ~8s pieces (hard max ~10s), cutting at
+// silence runs where possible so words are not split across
+// sessions.
+const (
+	chunkTargetFrames = 150 // ~6s: prefer to cut here; the window
+	// [target, max) must be wide enough to usually contain a
+	// silence run, or the cut lands mid-word (verified: with a
+	// 2s window some chunks had no silence run at all)
+	chunkMaxFrames  = 250 // ~10s: hard cut
+	chunkMinSilence = 8   // ~0.3s of silence marks a cut point
+)
+
+func splitIntoChunks(pcm []byte) [][]byte {
+	frames := len(pcm) / silenceFrameBytes
+	if frames == 0 {
+		return [][]byte{pcm}
+	}
+	silent := make([]bool, frames)
+	for i := 0; i < frames; i++ {
+		silent[i] = frameIsSilent(pcm[i*silenceFrameBytes : (i+1)*silenceFrameBytes])
+	}
+	var chunks [][]byte
+	start := 0
+	for start < frames {
+		target := start + chunkTargetFrames
+		hard := start + chunkMaxFrames
+		if hard > frames {
+			hard = frames
+		}
+		if target >= frames {
+			chunks = append(chunks, pcm[start*silenceFrameBytes:frames*silenceFrameBytes])
+			break
+		}
+		cut := hard
+		for j := target; j+chunkMinSilence <= hard; j++ {
+			ok := true
+			for k := 0; k < chunkMinSilence; k++ {
+				if !silent[j+k] {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				cut = j
+				break
+			}
+		}
+		chunks = append(chunks, pcm[start*silenceFrameBytes:cut*silenceFrameBytes])
+		start = cut
+	}
+	// A trailing partial frame rides with the last chunk.
+	if tail := pcm[frames*silenceFrameBytes:]; len(tail) > 0 && len(chunks) > 0 {
+		chunks[len(chunks)-1] = append(chunks[len(chunks)-1], tail...)
+	}
+	return chunks
+}
+
+// joinChunkText joins per-chunk finals. Chinese needs no separator;
+// between two alphanumerics (e.g. English words split across chunks)
+// a single space is inserted, matching the composer's insertion rule.
+func joinChunkText(acc, next string) string {
+	if acc == "" {
+		return next
+	}
+	if next == "" {
+		return acc
+	}
+	ar := []rune(acc)
+	nr := []rune(next)
+	if isAlnumRune(ar[len(ar)-1]) && isAlnumRune(nr[0]) {
+		return acc + " " + next
+	}
+	return acc + next
+}
+
+func isAlnumRune(r rune) bool {
+	return r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'
+}
+
+// runOneLiveSession streams one short chunk through a single live
+// ASR session and returns its final text and interim count.
+func runOneLiveSession(pcm []byte) (finalText string, interimCount int, err error) {
 	var mu sync.Mutex
 	done := make(chan struct{})
 	var once sync.Once
@@ -132,6 +347,11 @@ func runLiveSession(pcm []byte) (finalText string, interimCount int, err error) 
 		if ferr := asr.FeedPCM(h, pcm[off:end]); ferr != nil {
 			return "", interimCount, ferr
 		}
+		// Pace the feed: the server processes streaming audio at
+		// only a few multiples of real time, so an as-fast-as-
+		// possible feed overruns it and the tail of a chunk is
+		// dropped. 10ms per 40ms frame is ~4x real time.
+		time.Sleep(10 * time.Millisecond)
 	}
 	if err := asr.FinalizeSession(h); err != nil {
 		return "", interimCount, err
@@ -168,7 +388,7 @@ func handleTranscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(pcm) > maxPCMBytes {
-		writeErr(w, http.StatusRequestEntityTooLarge, "pcm longer than 60s")
+		writeErr(w, http.StatusRequestEntityTooLarge, "pcm longer than 180s")
 		return
 	}
 	if len(pcm)%2 != 0 {

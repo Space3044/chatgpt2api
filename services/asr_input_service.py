@@ -20,8 +20,8 @@ import os
 import urllib.error
 import urllib.request
 
-MAX_PCM_SECONDS = 60
-MAX_PCM_BYTES = MAX_PCM_SECONDS * 16000 * 2  # 60s of 16kHz mono s16le
+MAX_PCM_SECONDS = 180
+MAX_PCM_BYTES = MAX_PCM_SECONDS * 16000 * 2  # 180s of 16kHz mono s16le
 SIDECAR_TIMEOUT_SECS = 180
 
 
@@ -94,7 +94,7 @@ class AsrInputService:
         if len(pcm) % 2 != 0:
             raise AsrInputError(400, "语音数据必须是 16 位单声道 PCM")
         if len(pcm) > MAX_PCM_BYTES:
-            raise AsrInputError(400, "语音超过 60 秒，请分段录入")
+            raise AsrInputError(400, "语音超过 180 秒，请分段录入")
         path = "/transcribe?postasr=1" if postasr else "/transcribe"
         result = _call_sidecar(path, pcm, "application/octet-stream")
         if not isinstance(result, dict) or "text" not in result:
