@@ -2,13 +2,14 @@
 
 ## Unreleased
 
-+ [新增] Studio 对话和画图输入框支持语音输入：按住话筒按钮说话，松手后识别结果插回输入框。音频由浏览器重采样为 16kHz 单声道 PCM，经 Python 后端 `/v1/asr/transcribe` 转发给内置的 cometix-asr Go sidecar 做实时识别；另有独立的 `/v1/asr/postasr`（fmt + NER）和 `/v1/asr/config`。sidecar 只监听容器内 loopback，不对外暴露；Mock 模式没有移植；后处理的 app key 没有仓库内默认值，必须在 VPS 的 `.env` 里设置 `COMETIX_APP_KEY`。
++ [新增] Studio 对话和画图输入框支持语音输入：点击话筒按钮开始录音，再点一次结束并识别，识别结果插回输入框。音频由浏览器重采样为 16kHz 单声道 PCM，经 Python 后端 `/v1/asr/transcribe` 转发给内置的 cometix-asr Go sidecar 做实时识别；另有独立的 `/v1/asr/postasr`（fmt + NER）和 `/v1/asr/config`。sidecar 只监听容器内 loopback，不对外暴露；Mock 模式没有移植；后处理的 app key 没有仓库内默认值，必须在 VPS 的 `.env` 里设置 `COMETIX_APP_KEY`。
 
 + [新增] 语音对话后端并入单进程（方案 A，见 ADR 0005）：`/v1/voice/config`、`/v1/voice/sessions` 及 context/title/uploads/complete/release 路由，信令走网关、媒体浏览器直连上游，网关不收存通话音频与图片；语音会话粘性绑定一个上游账号，401 换号重试最多 4 次，粘性账号失效直接失败不静默换号；语音账号复用账号池的 RT 自动刷新。
 + [新增] 语音调用进入日志与监控时只记录元数据（会话 id、账号、语音参数、耗时、结果），不记录 SDP、ICE candidate 与 DataChannel 文本；管理员会话列表不含账号、token 与代理。
 + [新增] 语音可调项（默认音色/语言、会话 TTL 180 秒、最大换号次数 4）进入系统设置；`vgw_live_*` 下游 Key 彻底废弃，语音接口只接受本项目 User Key 鉴权。
 + [新增] Application Database 新增 `voice_sessions`、`voice_conversations`、`voice_messages` 表与独立 Repository，不动账号存储。
 + [新增] 语音面板通话中可以发图片：选图后经网关换凭证、浏览器直传 Azure、complete 后经 DataChannel 把图片指针发给对方，图片字节不经过网关；通话结束前对方说完即清掉实时字幕，实时字幕只在对方说话时显示。
++ [修复] 语音输入话筒按钮移到输入框右侧发送按钮旁边；录音改为点击开始、再点击结束并识别，不再按住说话。
 + [修复] 通话中发图对方看不到：relay 消息的图片 part 之前只有裸指针，补上 width/height/size_bytes，消息再带 metadata.attachments（与项目内文字对话发图同一形状），否则语音后端解析不出图片。
 + [移除] 通话中发图片（2026-11-16）：实测语音通道根本不支持通话中发图，对方看不到图片。上游和下游一起移除：`/v1/voice/sessions/{id}/uploads` 与 complete 路由、网关上传方法、上游 files 调用（`create_file_upload` / `complete_file_upload` / `process_upload_stream`）、面板发图按钮与 `sendImage`。文字对话发图不受影响（走 `_upload_image`）。
 

@@ -2,12 +2,12 @@ import { onBeforeUnmount, ref } from 'vue'
 import { asrInputApi } from '@/api/asrInput'
 
 /**
- * Push-to-talk voice input for the Studio composer.
+ * Click-to-toggle voice input for the Studio composer.
  *
  * Records the microphone, resamples any input rate to 16kHz mono s16le
  * PCM in 40ms frames (the same AudioWorklet resampler as the
- * cometix-asr browser relay), and on release sends the whole recorded
- * utterance to POST /v1/asr/transcribe. The final transcript is
+ * cometix-asr browser relay), and on the second click sends the whole
+ * recorded utterance to POST /v1/asr/transcribe. The final transcript is
  * returned to the caller, which inserts it into the composer text.
  * There is no interim transcript on this path: the backend runs one
  * live ASR session per utterance and only the final text comes back.

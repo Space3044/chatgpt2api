@@ -76,8 +76,6 @@
               </Button>
             </div>
 
-            <AsrMicButton :disabled="isSending" @transcript="handleAsrTranscript" @error="$emit('asr-error', $event)" />
-
             <div class="chat-select-wrap chat-select-wrap--mode">
               <GroupedSelectMenu
                 v-model="modeValue"
@@ -304,6 +302,8 @@
           </div>
 
           <div class="chat-input-submit-row">
+            <AsrMicButton :disabled="isSending" @transcript="handleAsrTranscript" @error="$emit('asr-error', $event)" />
+
             <button
               v-if="isStreaming"
               type="button"

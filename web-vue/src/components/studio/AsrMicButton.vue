@@ -8,12 +8,9 @@
     }"
     :disabled="disabled || asr.state.value === 'transcribing'"
     :aria-label="ariaLabel"
+    :aria-pressed="asr.state.value === 'recording'"
     :title="ariaLabel"
-    @pointerdown.prevent="handlePointerDown"
-    @pointerup.prevent="handlePointerUp"
-    @pointerleave="handlePointerUp"
-    @pointercancel="handlePointerUp"
-    @click.stop.prevent
+    @click.stop.prevent="handleClick"
   >
     <Icon
       :icon="asr.state.value === 'transcribing' ? 'lucide:loader-circle' : 'lucide:mic'"
@@ -40,20 +37,23 @@ const emit = defineEmits<{
 const asr = useAsrInput()
 
 const ariaLabel = computed(() => {
-  if (asr.state.value === 'recording') return '松开发送语音'
+  if (asr.state.value === 'recording') return '点击结束语音输入'
   if (asr.state.value === 'transcribing') return '正在识别语音'
-  return '按住说话'
+  return '点击开始语音输入'
 })
 
-async function handlePointerDown() {
+// Click to toggle: click once to start recording, click again to stop
+// and transcribe. Desktop browsers use this; there is no hold-to-talk.
+async function handleClick() {
   if (props.disabled) return
-  await asr.start()
-}
-
-async function handlePointerUp() {
-  if (asr.state.value !== 'recording') return
-  const text = await asr.stop()
-  if (text) emit('transcript', text)
+  if (asr.state.value === 'recording') {
+    const text = await asr.stop()
+    if (text) emit('transcript', text)
+    return
+  }
+  if (asr.state.value === 'idle') {
+    await asr.start()
+  }
 }
 
 watch(

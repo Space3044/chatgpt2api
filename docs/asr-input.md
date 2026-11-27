@@ -1,12 +1,13 @@
 # Voice input in Studio (cometix-asr sidecar)
 
-Status: current (voice.10, unreleased to the VPS until the fork is private)
+Status: current (voice.10.1, deployed on the VPS)
 
 ## What it is
 
 The Studio composer — the single input box shared by the 对话 (chat)
-and 画图 (image) modes — has a microphone button. Hold it to record,
-release to transcribe, and the recognised text is inserted into the
+and 画图 (image) modes — has a microphone button on the right, next
+to the send button. Click it to start recording, click it again to
+stop and transcribe, and the recognised text is inserted into the
 composer text (no space is added for Chinese; a space is added only
 when both sides are alphanumeric). The same button serves both modes
 because they share `StudioComposer.vue`.
