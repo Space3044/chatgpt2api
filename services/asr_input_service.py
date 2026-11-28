@@ -1,31 +1,34 @@
-"""Voice-input service: talks to the cometix-asr Go sidecar.
+"""Voice-input service: pure-Python cometix-asr client, in-process.
 
-The sidecar (asr-sidecar/cmd/asr-server, built into the Docker image and
-started by the entrypoint on loopback) owns the live ASR session and the
-standalone RunPostAsr (fmt + NER). This service owns only the Python-side
-projection for the non-streaming calls: the config probe and the
-standalone post-ASR. The live streaming path lives in
-services/asr_stream_service.py, which relays the browser WebSocket to
-the sidecar's WS endpoint; the record-then-transcribe HTTP path was
-removed in voice.10.3. This service never sees device ids, tokens or
-any cometix-asr secret: the sidecar reads COMETIX_APP_KEY from the
-container environment itself, and the only credential on this path is
-the optional ASR_SIDECAR_KEY shared header, also from the environment.
+Since voice.10.4 the Python backend owns the live ASR session and
+the standalone RunPostAsr (fmt + NER) directly
+(``services/cometix_asr.py``); there is no Go sidecar and no loopback
+service any more. This service owns only the Python-side projection
+for the non-streaming calls: the config probe and the standalone
+post-ASR. The live streaming path lives in
+``services/asr_stream_service.py``; the record-then-transcribe HTTP
+path was removed in voice.10.3.
+
+The post-ASR app key has no default in the repo and comes only from
+``COMETIX_APP_KEY`` in the container environment; without it, live
+transcription still works and only RunPostAsr fails, with a clear
+error. No device id, token or cometix-asr secret ever appears in a
+log on this path.
 
 Mock mode is not ported: there is no simulated transcript path here.
-If the sidecar is unreachable, post-ASR fails with 503 and a clear
-message instead of inventing a result.
 """
 from __future__ import annotations
 
-import json
-import os
-import urllib.error
-import urllib.request
+from services.cometix_asr import (
+    CometixAsrError,
+    PostAsrConfig,
+    ensure_did,
+    get_cached_did,
+    run_post_asr,
+)
 
 MAX_PCM_SECONDS = 180
 MAX_PCM_BYTES = MAX_PCM_SECONDS * 16000 * 2  # 180s of 16kHz mono s16le
-SIDECAR_TIMEOUT_SECS = 180
 
 
 class AsrInputError(Exception):
@@ -37,55 +40,14 @@ class AsrInputError(Exception):
         self.message = message
 
 
-def _sidecar_url() -> str:
-    return (os.getenv("ASR_SIDECAR_URL") or "http://127.0.0.1:3101").rstrip("/")
-
-
-def _sidecar_headers(content_type: str) -> dict[str, str]:
-    headers = {"Content-Type": content_type}
-    key = os.getenv("ASR_SIDECAR_KEY") or ""
-    if key:
-        headers["X-Asr-Key"] = key
-    return headers
-
-
-def _call_sidecar(path: str, body: bytes, content_type: str) -> dict:
-    url = f"{_sidecar_url()}{path}"
-    req = urllib.request.Request(
-        url, data=body, headers=_sidecar_headers(content_type), method="POST"
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=SIDECAR_TIMEOUT_SECS) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:500]
-        try:
-            parsed = json.loads(detail)
-            message = str(parsed.get("error") or detail)
-        except (ValueError, TypeError):
-            message = detail or f"语音识别服务返回 HTTP {exc.code}"
-        raise AsrInputError(
-            502 if exc.code >= 500 else exc.code, message
-        ) from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise AsrInputError(
-            503, "语音识别服务不可用，请稍后重试"
-        ) from exc
-
-
 class AsrInputService:
-    """Forwards recorded speech to the sidecar; owns no ASR state."""
+    """Voice-input config probe and standalone post-ASR."""
 
     def config(self) -> dict[str, object]:
-        enabled = False
-        try:
-            req = urllib.request.Request(f"{_sidecar_url()}/healthz", method="GET")
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                enabled = resp.status == 200
-        except Exception:
-            enabled = False
+        # The ASR client runs in-process now, so there is no sidecar
+        # to probe: the feature is available whenever this code is.
         return {
-            "enabled": enabled,
+            "enabled": True,
             "sample_rate": 16000,
             "channels": 1,
             "max_seconds": MAX_PCM_SECONDS,
@@ -99,17 +61,25 @@ class AsrInputService:
         sami_token: str | None = None,
         uid: str = "",
     ) -> dict[str, object]:
-        payload: dict[str, object] = {
-            "text": text,
-            "enable_fmt": enable_fmt,
-            "enable_ner": enable_ner,
-            "uid": uid,
-        }
-        if sami_token is not None:
-            payload["sami_token"] = sami_token
-        result = _call_sidecar(
-            "/postasr", json.dumps(payload).encode("utf-8"), "application/json"
-        )
+        did = get_cached_did()
+        if not did:
+            try:
+                did = ensure_did(False)
+            except CometixAsrError as exc:
+                raise AsrInputError(503, "语音识别服务不可用，请稍后重试") from exc
+        try:
+            result = run_post_asr(
+                PostAsrConfig(
+                    did=did,
+                    enable_fmt=enable_fmt,
+                    enable_ner=enable_ner,
+                    sami_token=sami_token,
+                    uid=uid,
+                ),
+                text,
+            )
+        except CometixAsrError as exc:
+            raise AsrInputError(400, str(exc)) from exc
         if not isinstance(result, dict) or "final_text" not in result:
             raise AsrInputError(502, "后处理服务返回了无法识别的结果")
         return result

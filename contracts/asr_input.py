@@ -1,4 +1,4 @@
-"""Stable projections for voice input (cometix-asr sidecar).
+"""Stable projections for voice input (pure-Python cometix-asr client).
 
 The browser records audio and the Studio composer inserts the recognised
 text. The backend projection is the only place that decides what the
@@ -36,7 +36,7 @@ class AsrPostAsrRequest(_StrictModel):
 
 
 class AsrPostAsrResponse(_StrictModel):
-    """PostAsrResult JSON, as returned by the sidecar (see docs/asr-input.md)."""
+    """PostAsrResult JSON, as returned by RunPostAsr (see docs/asr-input.md)."""
 
     input: str
     fmt_text: str | None = None

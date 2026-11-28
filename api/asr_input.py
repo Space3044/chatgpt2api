@@ -1,4 +1,4 @@
-"""Voice-input routes (cometix-asr sidecar).
+"""Voice-input routes (pure-Python cometix-asr client, in-process).
 
 Authentication reuses the chatgpt2api User Key system only: Bearer
 token verified by ``api/support.py`` ``require_identity`` (legacy
@@ -13,10 +13,10 @@ Key base64url-encoded as a ``Sec-WebSocket-Protocol`` value (see
 ``services/asr_stream_service.py`` ``extract_ws_identity``): the same
 credential, the same ``require_identity`` check — no new credential,
 no key in the URL (uvicorn logs request paths), no key in any log.
-The Python backend relays the socket to the Go sidecar's ``WS /ws``
-on loopback; the browser never talks to the sidecar directly, and no
-device id, token or cometix-asr secret ever appears in a request, a
-response or a log on this path.
+The Python backend runs the live ASR session itself, in-process
+(``services/cometix_asr.py``); since voice.10.4 there is no Go
+sidecar and no loopback service. No device id, token or cometix-asr
+secret ever appears in a request, a response or a log on this path.
 
 There is no record-then-transcribe path: ``POST /v1/asr/transcribe``
 was removed in voice.10.3 when streaming replaced it. If the live
